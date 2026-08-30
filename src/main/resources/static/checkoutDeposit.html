@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ha">
+<head>
+  <meta charset="utf-8" />
+  <title>결제하기</title>
+  <!-- 토스페이먼츠 결제창 SDK 추가 -->
+  <script src="https://js.tosspayments.com/v1/payment"></script>
+</head>
+<body>
+<section>
+  <!--  충전하기 버튼 만들기  -->
+  <span>보증금 결제</span>
+  <span>20000</span>
+  <button id="payment-button">입찰하기</button>
+</section>
+<script>
+  // ------ 클라이언트 키로 객체 초기화 ------
+  var clientKey = 'test_ck_DnyRpQWGrNaWRw04jOYOVKwv1M9E'
+  var tossPayments = TossPayments(clientKey)
+  // ------ 충전하기 버튼에 기능 추가 ------
+  var button = document.getElementById('payment-button') // 충전하기 버튼
+  button.addEventListener('click', function () {
+    // ------ 결제창 띄우기 ------
+    tossPayments.requestPayment('CARD', {
+      amount: 20000,
+      orderId: 'ORD-eff3398f',
+      orderName: '일반경매 보증금',
+      customerName: 'buyer',
+      successUrl: window.location.origin + "/successDeposit.html",
+      failUrl: window.location.origin + "/fail.html",
+    })
+  })
+</script>
+</body>
+</html>

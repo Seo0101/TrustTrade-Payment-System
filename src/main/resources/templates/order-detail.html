@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8"/>
+    <title>주문 상태</title>
+</head>
+
+<body>
+<h2>주문 상태 확인 중...</h2>
+
+<div id="status"></div>
+<div id="detail"></div>
+
+<button id="retryBtn" style="display:none;">결제 다시 시도</button>
+
+<script th:inline="javascript">
+
+    const orderId = /*[[${orderId}]]*/ "";
+    const idempotencyKey = /*[[${idempotencyKey}]]*/ "";
+
+    console.log("orderId =", orderId);
+    console.log("idempotencyKey =", idempotencyKey);
+
+    // const path = window.location.pathname;
+    // const orderId = path.split("/")[2]
+    //
+    // const urlParams = new URLSearchParams(window.location.search);
+    // const idempotencyKey = urlParams.get("idempotencyKey");
+
+    const statusEl = document.getElementById("status");
+    const detailEl = document.getElementById("detail");
+    const retryBtn = document.getElementById("retryBtn");
+
+    const MAX_RETRY = 20; // 약 40초
+    let retryCount = 0;
+
+    let timer = null;
+
+    function stopPolling() {
+        if (timer) {
+            clearTimeout(timer);
+            timer = null;
+        }
+    }
+
+    // =========================
+    // 1️⃣ 최종 상태 렌더링 함수
+    // =========================
+    function renderFinal(status) {
+
+        statusEl.textContent = `현재 상태: ${status}`;
+
+        if (status === "SUCCESS") {
+            detailEl.textContent = "결제가 완료되었습니다.";
+
+            retryBtn.style.display = "none";
+
+            return true;
+        }
+
+        if (status === "FAILED") {
+            detailEl.textContent = "결제가 실패했습니다.";
+
+            retryBtn.style.display = "block";
+
+            return true;
+        }
+
+        return false;
+    }
+
+    // =========================
+    // 2️⃣ 상태 조회 (polling)
+    // =========================
+    async function loadStatus() {
+        try {
+            const res = await fetch(
+                `/orders/${orderId}/payment-status?idempotencyKey=${idempotencyKey}`
+            );
+
+            //http 오류
+            if (!res.ok) {
+
+                throw new Error(
+                    `상태 조회 실패: ${res.status}`
+                );
+            }
+
+            const data = await res.json();
+
+            console.log("결제 상태:", data.status);
+
+            // SUCCESS / FAILED면 즉시 종료
+            const done = renderFinal(data.status);
+
+            if (done) {
+
+                stopPolling();
+                return;
+            }
+
+            // PENDING 처리
+            if (data.status === "PENDING") {
+
+                detailEl.textContent = "결제 처리 중입니다. 잠시 후 자동 갱신됩니다.";
+
+                retryCount++;
+
+                if (retryCount >= MAX_RETRY) {
+                    detailEl.textContent =
+                        "결제 상태 확인이 지연되고 있습니다. 잠시 후 다시 확인해주세요.";
+                    stopPolling();
+                    return;
+                }
+
+                //2초 후 다시 조회
+                timer = setTimeout(loadStatus, 2000);
+
+                return;
+            }
+
+            //예상하지 못한 상태
+            detailEl.textContent =
+                "결제 상태를 확인할 수 없습니다.";
+
+            stopPolling();
+
+        } catch (e){
+            console.error(
+                "결제 상태 조회 오류:",
+                e
+            );
+
+            /*
+             * 일시적인 네트워크 오류라면
+             * 바로 결제 실패로 판단하지 않는다.
+             */
+
+            detailEl.textContent =
+                "결제 상태를 확인하는 중입니다. 잠시 후 다시 시도합니다.";
+
+            retryCount++;
+
+
+            if (retryCount >= MAX_RETRY) {
+
+                detailEl.textContent =
+                    "결제 상태 확인이 지연되고 있습니다. 잠시 후 다시 확인해주세요.";
+
+                stopPolling();
+                return;
+            }
+
+
+            timer = setTimeout(loadStatus, 2000);
+        }
+
+
+    }
+
+    // =========================
+    // 3️⃣ 초기 진입 로직
+    // =========================
+    function init() {
+        loadStatus();
+    }
+
+    init();
+</script>
+
+</body>
+</html>

@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="utf-8" />
+</head>
+
+<body>
+<h2> 결제 실패 </h2>
+<p id="code"></p>
+<p id="message"></p>
+</body>
+</html>
+
+<script>
+    const urlParams = new URLSearchParams(window.location.search);
+
+    const orderId = urlParams.get("orderId");
+    const message = urlParams.get("message");
+    const code = urlParams.get("code"); // 이거 반드시 같이 넘겨야 함
+
+    document.getElementById("code").textContent = "에러코드: " + code;
+    document.getElementById("message").textContent = "실패 사유: " + message;
+
+
+    fetch("/payments/fail", {
+        method: "POST",
+        headers: {
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+            orderId: orderId,
+            reason: message
+        })
+    });
+</script>

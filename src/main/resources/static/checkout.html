@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="ha">
+<head>
+    <meta charset="utf-8"/>
+    <title>결제하기</title>
+    <!-- 토스페이먼츠 결제창 SDK 추가 -->
+    <script src="https://js.tosspayments.com/v1/payment"></script>
+</head>
+<body>
+<section>
+    <!--  충전하기 버튼 만들기  -->
+    <span>결제 금액</span>
+    <span>100000</span>
+    <button id="payment-button">결제하기</button>
+</section>
+<script>
+    // ------ 클라이언트 키로 객체 초기화 ------
+    var clientKey = 'test_ck_DnyRpQWGrNaWRw04jOYOVKwv1M9E'
+    var tossPayments = TossPayments(clientKey)
+    // ------ 충전하기 버튼에 기능 추가 ------
+    var button = document.getElementById('payment-button') // 충전하기 버튼
+
+    let idempotencyKey = "ORD-8841d77e9";
+    button.addEventListener('click', async function () {
+
+        if (!idempotencyKey) {
+            idempotencyKey = crypto.randomUUID();
+        }
+
+        const orderId = "ORD-8841d77e"//orders/new 호출 후 클라이언트에서 직접 설정! 테스트할 땐, 임의로 설정하기
+
+        const res = await fetch("/payments/ready", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                orderId: orderId,
+                idempotencyKey: idempotencyKey
+            }),
+        });
+
+        if (!res.ok) {
+            alert("결제 준비 실패");
+            return;
+        }
+        const data = await res.json();
+        console.log(data.paymentId);
+        console.log(data.idempotencyKey);
+
+        // ------ 결제창 띄우기 ------
+        tossPayments.requestPayment('CARD', {
+            amount: 100000,
+            orderId: orderId,
+            orderName: 'LG 그램',
+            customerName: '구매자1',
+            successUrl: window.location.origin + `/result.html?idempotencyKey=${idempotencyKey}`,
+            failUrl: window.location.origin + `/result.html?idempotencyKey=${idempotencyKey}`,
+        })
+
+    });
+
+
+</script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+# 서버 포트 설정
+server:
+  port: 8080
+
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        jdbc:
+          time_zone: Asia/Seoul
+    database-platform: org.hibernate.dialect.MySQL8Dialect
+
+  jackson:
+    time-zone: Asia/Seoul
+
+  flyway:
+    enabled: false
+    baseline-on-migrate: false
+
+  #비밀키
+  config:
+    import: classpath:application-secret.yml
+
+
+# 로깅 설정
+logging:
+  level:
+    org.hibernate.tool.schema.internal.SchemaDropperImpl: TRACE
+    org.hibernate.tool.schema.spi.SchemaManagementToolCoordinator: TRACE
+
+
+# 로컬 사진 저장
+app:
+  upload:
+    root: src/main/resources/static/uploads
+
