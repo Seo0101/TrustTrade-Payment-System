@@ -1,21 +1,19 @@
 package org.example.trusttrade.order.domain;
 
-
 import org.example.trusttrade.item.domain.products.Product;
 import org.example.trusttrade.item.dto.request.BasicItemDto;
 import org.example.trusttrade.login.domain.User;
-import org.testng.annotations.Test;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-public class OrderTest {
-
+public class PaymentTest {
 
     @Test
-    public void 주문_생성_상태_확인(){
+    public void 결제_생성_상태_확인(){
 
         //given
         User buyer = User.builder()
@@ -58,27 +56,33 @@ public class OrderTest {
         product.validateOrderable(buyer.getId());
         product.reserve(buyer);
 
-        //when
-
-
         Order order = Order.create(product, buyer, seller, orderLockKey);
 
+        //when
+        order.startPayment();
+
+        Payment payment = Payment.create(order, "test_idempotencyKey");
 
         //then
-        assertThat(order.getStatus())
-                .isEqualTo(Order.Status.CREATED);
+        assertThat(payment.getOrder())
+                .isEqualTo(order);
 
-        assertThat(order.getProduct())
-                .isEqualTo(product);
+        assertThat(payment.getOrder().getAmount())
+                .isEqualTo(order.getAmount());
 
-        assertThat(order.getBuyer())
-                .isEqualTo(buyer);
+        assertThat(payment.getOrder().getStatus())
+                .isEqualTo(Order.Status.PENDING);
 
-        assertThat(order.getAmount())
-                .isEqualTo(product.getProductPrice());
+        assertThat(payment.getStatus())
+                .isEqualTo(Payment.Status.READY);
 
-        assertThat(order.getOrderLockKey())
-                .isEqualTo(orderLockKey);
+        assertThat(payment.getIdempotencyKey())
+                .isEqualTo("test_idempotencyKey");
+
+
+
+
+
+
     }
-
 }
