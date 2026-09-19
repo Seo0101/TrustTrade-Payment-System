@@ -25,7 +25,8 @@ public enum ErrorCode {
     PAYMENT_NOT_CONFIRMING("P20", HttpStatus.CONFLICT, "결제의 상태가 CONFIRMING 상태가 아닙니다."),
     PRODUCT_NOT_FOUND("P21", HttpStatus.NOT_FOUND, "상품을 찾을 수 없습니다."),
     PRODUCT_NOT_RESERVED("P22", HttpStatus.CONFLICT, "상품이 상태가 RESERVED 상태가 아닙니다."),
-    USER_NOT_FOUND("P23", HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다.");
+    USER_NOT_FOUND("P23", HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."),
+    ORDER_IDEMPOTENCY_CONFLICT("P24", HttpStatus.CONFLICT, "동일한 주문 멱등키를 다른 상품 또는 구매자에 사용할 수 없습니다.");
 
 
 

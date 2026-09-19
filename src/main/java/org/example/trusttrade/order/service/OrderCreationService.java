@@ -48,9 +48,12 @@ public class OrderCreationService {
         Optional<Order> existing =
                 orderRepository.findByOrderLockKey(orderLockKey);
 
+
         if (existing.isPresent()) {
+            Order existingOrder = existing.get();
+            existingOrder.validateSameRequest(productId, buyerId);
             return handleExistingOrder(
-                    existing.get(),
+                    existingOrder,
                     product,
                     buyerId
             );

@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import static org.example.trusttrade.global.error.ErrorCode.PAYABLE_NOT_POSSIBLE;
+import static org.example.trusttrade.global.error.ErrorCode.ORDER_IDEMPOTENCY_CONFLICT;
 import static org.example.trusttrade.order.domain.Order.Status.*;
 
 @Getter
@@ -66,6 +67,13 @@ public class Order {
     @Column(name = "order_lock_key", unique = true)
     private String orderLockKey;
 
+
+    public void validateSameRequest(Long productId, UUID buyerId) {
+        if (!this.product.getId().equals(productId)
+                || !this.buyer.getId().equals(buyerId)) {
+            throw new BusinessException(ORDER_IDEMPOTENCY_CONFLICT);
+        }
+    }
 
     public void increaseRetryCount(){
         this.retryCount++;
@@ -137,6 +145,7 @@ public class Order {
         }
         status = PENDING;
     }
+
 
 
 

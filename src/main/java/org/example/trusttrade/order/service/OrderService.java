@@ -58,6 +58,7 @@ public class OrderService {
                                     )
                             );
 
+            existingOrder.validateSameRequest(productId, buyerId);
             return existingOrder;
         }
     }
