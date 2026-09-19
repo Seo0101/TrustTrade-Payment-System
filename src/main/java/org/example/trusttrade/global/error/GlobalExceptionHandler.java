@@ -154,22 +154,22 @@ public class GlobalExceptionHandler {
     }
 
     //결제 승인 결과 처리 중 PG사, 서버 장애
-    @ExceptionHandler(PaymentSystemException.class)
-    public ResponseEntity<ErrorResponse> handlePaymentSystemException(
-            PaymentSystemException e
-    ) {
+        @ExceptionHandler(PaymentSystemException.class)
+        public ResponseEntity<ErrorResponse> handlePaymentSystemException(
+                PaymentSystemException e
+        ) {
 
-        ErrorCode errorCode = e.getErrorCode();
+            ErrorCode errorCode = e.getErrorCode();
 
-        ErrorResponse response = new ErrorResponse(
-                errorCode.getCode(),
-                errorCode.getMessage()
-        );
+            ErrorResponse response = new ErrorResponse(
+                    errorCode.getCode(),
+                    errorCode.getMessage()
+            );
 
-        return ResponseEntity
-                .status(errorCode.getStatus())
-                .body(response);
-    }
+            return ResponseEntity
+                    .status(errorCode.getStatus())
+                    .body(response);
+        }
 
     //
 

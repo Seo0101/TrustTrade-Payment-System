@@ -48,7 +48,7 @@ public class PaymentCreationService {
     ) {
         //비관적 락 적용
         //다른 멱등키로 중복요청 오는 경우, 이곳에서 동일한 주문에 대한 결제 생성 방지
-        Order order = orderRepository.findById(orderId)
+        Order order = orderRepository.findByIdForUpdate(orderId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND)) ;
 
         log.info("Creating payment for orderId = {} status = {}", orderId, order.getStatus());

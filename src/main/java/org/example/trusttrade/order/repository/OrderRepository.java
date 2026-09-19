@@ -19,4 +19,8 @@ public interface OrderRepository extends JpaRepository<Order, String> {
     List<Order> getOrdersByUserId(@Param("userId") UUID userId);
 
     Optional<Order> findByOrderLockKey(String lockKey);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select o from Order o where o.id = :orderId")
+    Optional<Order> findByIdForUpdate(@Param("orderId") String orderId);
 }
