@@ -58,12 +58,13 @@ public class Payment {
         if (order == null) {
             throw new IllegalArgumentException("order는 필수입니다.");
         }
-        if (idempotencyKey == null) {
+        if (idempotencyKey == null || idempotencyKey.isBlank()) {
             throw new IllegalArgumentException("idempotencyKey는 필수입니다.");
         }
 
         Payment payment = new Payment();
         payment.idempotencyKey = idempotencyKey;
+        payment.amount = order.getAmount();
 
         order.addPayment(payment);
 

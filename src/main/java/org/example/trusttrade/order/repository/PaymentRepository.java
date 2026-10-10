@@ -35,4 +35,13 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     List<Payment> findByStatusWithLock(@Param("threshold") LocalDateTime threshold);
 
 
+    @Query("""
+    select p.order.id
+    from Payment p
+    where p.idempotencyKey = :idempotencyKey
+    """)
+    Optional<String> findOrderIdByIdempotencyKey(
+            @Param("idempotencyKey") String idempotencyKey
+    );
+
 }

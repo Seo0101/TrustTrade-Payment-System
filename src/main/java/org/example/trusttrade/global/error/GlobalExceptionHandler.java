@@ -7,6 +7,7 @@ import org.example.trusttrade.order.exception.SystemException.PaymentCreationFai
 import org.example.trusttrade.order.exception.SystemException.PaymentSystemException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -171,7 +172,17 @@ public class GlobalExceptionHandler {
                     .body(response);
         }
 
-    //
+    //NotBlank 처리
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ErrorResponse> handleValidationException(
+            MethodArgumentNotValidException e
+    ) {
+        return ResponseEntity.badRequest()
+                .body(new ErrorResponse(
+                        "INVALID_REQUEST",
+                        "필수 요청값을 확인해주세요."
+                ));
+    }
 
 
 

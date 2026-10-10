@@ -9,6 +9,7 @@ import org.example.trusttrade.order.domain.Payment;
 import org.example.trusttrade.order.domain.PaymentSyncResult;
 import org.example.trusttrade.order.exception.*;
 import org.example.trusttrade.order.exception.SystemException.PaymentSystemException;
+import org.example.trusttrade.order.repository.OrderRepository;
 import org.example.trusttrade.order.repository.PaymentRepository;
 import org.example.trusttrade.order.util.PaymentResponseParser;
 import org.springframework.stereotype.Service;
@@ -27,6 +28,29 @@ public class PaymentResultService {
 
     private final PaymentResponseParser paymentResponseParser;
     private final PaymentRepository paymentRepository;
+    private final OrderRepository orderRepository;
+
+    // 반드시 트랜잭션 안에서 호출
+    private Payment findPaymentWithOrderLock(String idempotencyKey) {
+        // ID만 조회: 이 단계에서 상태를 판단하지 않음
+        String orderId = paymentRepository
+                .findOrderIdByIdempotencyKey(idempotencyKey)
+                .orElseThrow(() ->
+                        new BusinessException(ErrorCode.PAYMENT_NOT_FOUND));
+
+        // 1. 주문 락
+        orderRepository.findByIdForUpdate(orderId)
+                .orElseThrow(() ->
+                        new BusinessException(ErrorCode.ORDER_NOT_FOUND));
+
+        // 2. 결제 락 + 최신 결제 조회
+        return paymentRepository
+                .findByIdempotencyKeyForUpdate(idempotencyKey)
+                .orElseThrow(() ->
+                        new BusinessException(ErrorCode.PAYMENT_NOT_FOUND));
+    }
+
+
 
 
     //===============인증 api 호출 전 처리 트랜잭션=============
@@ -49,12 +73,8 @@ public class PaymentResultService {
     //confirm 중복 요청 대응
     private Payment validateIdempotency(String idempotencyKey) {
 
-        //1. 비관적 락 조회로 중복 요청 방지
-        Payment payment = paymentRepository
-                .findByIdempotencyKeyForUpdate(idempotencyKey)
-                .orElseThrow(() ->
-                        new BusinessException(ErrorCode.PAYMENT_NOT_FOUND)
-                );
+        // 주문 → 결제 순서로 락 획득
+        Payment payment = findPaymentWithOrderLock(idempotencyKey);
 
         // 2. 최종 상태는 무조건 차단
         if (payment.getStatus() != Payment.Status.READY) {
@@ -97,13 +117,8 @@ public class PaymentResultService {
             HttpResponse<String> response
     ) {
 
-        //외부 API 호출 끝남 -> idempotencyKey로 다시 payment 조회
-        //paymentKey는 토스에서 식별하는 키임. idempotencyKey는 처음부터 이 결제를 조회하기 위한 키였으므로 이 멱등키로 조회
-        //상태 변경 로직 포함되어 있으므로 비관적 락 적용
-        Payment payment = paymentRepository.findByIdempotencyKeyForUpdate(idempotencyKey)
-                .orElseThrow(() ->
-                        new BusinessException(ErrorCode.PAYMENT_NOT_FOUND)
-                );
+        // 주문 → 결제 순서로 락 획득
+        Payment payment = findPaymentWithOrderLock(idempotencyKey);
 
         //payment 상태 CONFIRMING 검증
         if (payment.getStatus() != Payment.Status.CONFIRMING) {
@@ -231,14 +246,8 @@ public class PaymentResultService {
             HttpResponse<String> response
     ) {
 
-        //외부 api 호출 후 다시 조회
-        Payment payment = paymentRepository
-                .findByIdempotencyKey(idempotencyKey)
-                .orElseThrow(() ->
-                        new BusinessException(
-                                ErrorCode.PAYMENT_NOT_FOUND
-                        )
-                );
+        // 주문 → 결제 순서로 락 획득
+        Payment payment = findPaymentWithOrderLock(idempotencyKey);
 
         // 이미 처리된 결제
         if (payment.getStatus() == Payment.Status.SUCCESS) {

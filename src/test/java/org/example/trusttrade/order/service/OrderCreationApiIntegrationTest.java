@@ -66,10 +66,22 @@ class OrderCreationApiIntegrationTest {
         }
         @Bean OrderRepository orders(EntityManager em) {
             var factory = new JpaRepositoryFactory(em);
-            // Match Spring Data production repositories: translate JDBC/JPA exceptions to DataAccessException.
+            // H2 is only a test database. Normalize its unique violation to Spring's
+            // DuplicateKeyException without adding H2-specific handling to production code.
+            var dialect = new HibernateJpaDialect();
+            org.springframework.dao.support.PersistenceExceptionTranslator translator = exception -> {
+                for (Throwable cause = exception; cause != null; cause = cause.getCause()) {
+                    if (cause instanceof java.sql.SQLException sql
+                            && "23505".equals(sql.getSQLState())) {
+                        return new org.springframework.dao.DuplicateKeyException(
+                                "H2 test database unique constraint violation", exception);
+                    }
+                }
+                // Foreign-key and other integrity violations remain ordinary database errors.
+                return dialect.translateExceptionIfPossible(exception);
+            };
             factory.addRepositoryProxyPostProcessor((proxy, metadata) -> proxy.addAdvice(
-                    new org.springframework.dao.support.PersistenceExceptionTranslationInterceptor(
-                            new HibernateJpaDialect())));
+                    new org.springframework.dao.support.PersistenceExceptionTranslationInterceptor(translator)));
             return mock(OrderRepository.class, org.mockito.AdditionalAnswers.delegatesTo(
                     factory.getRepository(OrderRepository.class)));
         }

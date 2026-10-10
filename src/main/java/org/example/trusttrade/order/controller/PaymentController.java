@@ -1,5 +1,6 @@
 package org.example.trusttrade.order.controller;
 
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.example.trusttrade.order.domain.Payment;
 import org.example.trusttrade.order.dto.*;
@@ -16,13 +17,14 @@ public class PaymentController {
 
     //PG 요청 전 주문 상태 pending으로 변경
     @PostMapping("/ready")
-    public ResponseEntity<?> readyPayment(@RequestBody PaymentReadyRequest request) {
+    public ResponseEntity<?> readyPayment(@Valid @RequestBody PaymentReadyRequest request) {
 
         Payment payment = paymentService.ready(request.getOrderId(), request.getIdempotencyKey());
 
         return ResponseEntity.ok(new PaymentReadyResponse(
                 payment.getId(),
-                payment.getIdempotencyKey()
+                payment.getIdempotencyKey(),
+                payment.getStatus()
         ));
     }
 

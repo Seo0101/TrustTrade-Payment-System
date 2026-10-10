@@ -52,6 +52,29 @@ public class PaymentCreationService {
                 .orElseThrow(() -> new BusinessException(ErrorCode.ORDER_NOT_FOUND)) ;
 
         log.info("Creating payment for orderId = {} status = {}", orderId, order.getStatus());
+
+        // 주문 락 대기 중 다른 요청이 결제를 생성했을 수 있으므로 재확인
+        Optional<Payment> existing =
+                paymentRepository.findByIdempotencyKeyForUpdate(idempotencyKey);
+
+        if (existing.isPresent()) {
+            Payment payment = existing.get();
+
+            if (!payment.getOrder().getId().equals(orderId)) {
+                throw new BusinessException(ErrorCode.INVALID_PAYMENT_ORDER);
+            }
+
+            return payment;
+        }
+
+        // 예약 정합성 검증: 아래 4번
+        order.getProduct()
+                .validateRetryOrderable(order.getBuyer().getId());
+
+
+        //CREATED / FAILED만 허용하고 PENDING으로 변경
+        //동일 키 요청은 기존 결제를 반환하고,
+        // 다른 키로 진행 중인 주문에 결제를 추가하려는 요청은 startPayment()에서 차단
         order.startPayment();
 
         Payment payment = Payment.create(

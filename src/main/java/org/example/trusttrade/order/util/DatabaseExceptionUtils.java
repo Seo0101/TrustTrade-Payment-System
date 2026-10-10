@@ -1,5 +1,7 @@
 package org.example.trusttrade.order.util;
 
+import java.sql.SQLException;
+
 public class DatabaseExceptionUtils {
 
     //static으로만 사용할 클래스이므로 생성자 접근 불가능 하도록 private 설정
@@ -12,19 +14,27 @@ public class DatabaseExceptionUtils {
 
         while (cause != null) {
 
-            // 1. MySQL / PostgreSQL / Oracle 공통 체크
-            if (cause instanceof java.sql.SQLIntegrityConstraintViolationException) {
+            // Spring DataAccessException 계열 체크
+            if (cause instanceof org.springframework.dao.DuplicateKeyException) {
                 return true;
             }
 
-            // 2. Spring DataAccessException 계열 체크
-            if (cause instanceof org.springframework.dao.DuplicateKeyException) {
-                return true;
+            if (cause instanceof SQLException sqlException) {
+                for (SQLException sql = sqlException;
+                     sql != null;
+                     sql = sql.getNextException()) {
+
+                    //JDBC 예외에 연결된 추가 SQL 예외
+                    if (sql.getErrorCode() == 1062) {
+                        return true;
+                    }
+                }
             }
 
             cause = cause.getCause();
         }
 
+        //이외 예외는 중복 예외 말고 처리
         return false;
     }
 }
