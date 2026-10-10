@@ -68,6 +68,7 @@ public class Order {
     private String orderLockKey;
 
 
+    //같은 상품·구매자에 대한 요청인가?
     public void validateSameRequest(Long productId, UUID buyerId) {
         if (!this.product.getId().equals(productId)
                 || !this.buyer.getId().equals(buyerId)) {

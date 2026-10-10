@@ -47,7 +47,8 @@ public class OrderController {
         OrderPaymentResDto response = new OrderPaymentResDto(
                 order.getId(),
                 order.getAmount(),
-                order.getProductName());
+                order.getProductName(),
+                order.getStatus());
 
         return ResponseEntity.ok(response);
     }

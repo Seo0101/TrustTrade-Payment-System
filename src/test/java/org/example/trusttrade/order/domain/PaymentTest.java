@@ -53,8 +53,9 @@ public class PaymentTest {
 
         String orderLockKey = "test-lock-key";
 
-        product.validateOrderable(buyer.getId());
+        product.validateReservation(seller.getId(), buyer.getId());
         product.reserve(buyer);
+        product.validateOrderable(buyer.getId());
 
         Order order = Order.create(product, buyer, seller, orderLockKey);
 

@@ -59,6 +59,11 @@ class OrderIdempotencyTest {
             return new OrderCreationService(orders, products, users)
                     .create(KEY, productId, requestedBuyer);
         }
+        Product requestedProduct = mock(Product.class);
+        when(products.findByIdForUpdate(productId)).thenReturn(Optional.of(requestedProduct));
+        when(creation.recoverExistingOrder(KEY, productId, requestedBuyer))
+                .thenAnswer(invocation -> new OrderCreationService(orders, products, users)
+                        .recoverExistingOrder(KEY, productId, requestedBuyer));
         when(creation.create(KEY, productId, requestedBuyer))
                 .thenThrow(new DuplicateOrderException(KEY));
         return service.createOrder(KEY, productId, requestedBuyer);

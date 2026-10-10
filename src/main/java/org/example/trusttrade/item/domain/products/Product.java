@@ -74,21 +74,17 @@ public class Product extends Item {
 
     //상품 정보 및 구매자 정보 검증
     public void validateOrderable(UUID buyerId) {
-
-        // 1. 자기 구매 방지
-        if (this.getUser() != null && this.getUser().getId().equals(buyerId)) {
+        if (this.getUser().getId().equals(buyerId)) {
             throw new BusinessException(ErrorCode.SELF_PURCHASE_NOT_ALLOWED);
         }
-        //2. 판매 완료 상품
-        if (this.status == ProductStatus.COMPLETED) {
+
+        if (this.status != ProductStatus.RESERVED) {
             throw new BusinessException(ErrorCode.PRODUCT_NOT_AVAILABLE);
         }
-        //3. 예약 상품 -> 구매자 검증, 재결제인 경우 reserved임.
-        if (this.status == ProductStatus.RESERVED) {
-            if (this.reservedBuyer == null ||
-                    !this.reservedBuyer.getId().equals(buyerId)) {
-                throw new BusinessException(ErrorCode.NOT_RESERVED_BUYER);
-            }
+
+        if (this.reservedBuyer == null ||
+                !this.reservedBuyer.getId().equals(buyerId)) {
+            throw new BusinessException(ErrorCode.NOT_RESERVED_BUYER);
         }
     }
 
@@ -111,6 +107,31 @@ public class Product extends Item {
                 .build();
 
 
+    }
+
+    // 재결제: 예약 상태와 예약자 검증
+    public void validateRetryOrderable(UUID buyerId) {
+        if (this.status != ProductStatus.RESERVED) {
+            throw new BusinessException(ErrorCode.PRODUCT_NOT_RESERVED);
+        }
+
+        if (this.reservedBuyer == null
+                || !this.reservedBuyer.getId().equals(buyerId)) {
+            throw new BusinessException(ErrorCode.NOT_RESERVED_BUYER);
+        }
+    }
+
+
+    public void validateReservation(UUID sellerId, UUID buyerId) {
+        UUID productSellerId = this.getUser().getId();
+
+        if (!productSellerId.equals(sellerId)) {
+            throw new BusinessException(ErrorCode.NOT_PRODUCT_SELLER);
+        }
+
+        if (productSellerId.equals(buyerId)) {
+            throw new BusinessException(ErrorCode.SELF_PURCHASE_NOT_ALLOWED);
+        }
     }
 
 }

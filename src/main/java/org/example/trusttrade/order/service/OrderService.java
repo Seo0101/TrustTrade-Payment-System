@@ -47,19 +47,12 @@ public class OrderService {
 
         } catch (DuplicateOrderException e) {
 
-            //유니크 제약조건 예외 발생시 복구 로직
-            //tx 1은 끝난 상태
-            Order existingOrder =
-                    orderRepository.findByOrderLockKey(orderLockKey)
-                            .orElseThrow(() ->
-                                    new OrderCreationFailedException(
-                                            "중복 주문 충돌 후 기존 주문 조회 실패",
-                                            e
-                                    )
-                            );
-
-            existingOrder.validateSameRequest(productId, buyerId);
-            return existingOrder;
+            //Transaction 2
+            return orderCreationService.recoverExistingOrder(
+                    orderLockKey,
+                    productId,
+                    buyerId
+            );
         }
     }
 

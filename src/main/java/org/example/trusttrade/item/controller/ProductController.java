@@ -69,12 +69,14 @@ public class ProductController {
     }
 
     //협의 -> 구매자 확정
-    @PostMapping("/products/{productId}/reserve")
+    @PostMapping("/{productId}/reserve")
     public ResponseEntity<ProductReserveResponse> reserveProduct(
             @PathVariable Long productId,
-            @RequestBody ReserveRequest request
+            @Valid @RequestBody ReserveRequest request
     ) {
-        Product product = productService.reserveProduct(productId, request.getBuyerId());
+        Product product = productService.reserveProduct(productId,
+                request.getSellerId(),
+                request.getBuyerId());
 
         ProductReserveResponse response = new ProductReserveResponse(
                 productId,

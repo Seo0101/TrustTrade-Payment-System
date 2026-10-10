@@ -82,22 +82,26 @@ public class ProductService {
 
     //구매자 확정 및 상품 상태 변경
     @Transactional
-    public Product reserveProduct(Long productId, UUID buyerId) {
+    public Product reserveProduct(Long productId, UUID sellerId, UUID buyerId) {
 
         //중복 요청 처리 -> 락 적용된 조회(A 트랜잭션 진행중에 B는 조회 안됨)
-        Product product = productRepository.findByIdForUpdate(productId)
-                .orElseThrow(() -> new ProductNotFoundException(productId));
+        Product product = productRepository
+                .findByIdForUpdate(productId)
+                .orElseThrow(() ->
+                        new BusinessException(ErrorCode.PRODUCT_NOT_FOUND)
+                );
 
-        User buyer = userRepository.findById(buyerId)
-                .orElseThrow(() -> new UserNotFoundException(buyerId));
+
+        // 판매자 권한 및 자기 구매 방지
+        product.validateReservation(sellerId, buyerId);
 
         //기존 Product 있는 경우 반환
         if (product.isIdempotentRequest(buyerId)) {
             return product;
         }
 
-        //상품 상태, 구매자 정보 검증
-        product.validateOrderable(buyerId);
+        User buyer = userRepository.findById(buyerId)
+                .orElseThrow(() -> new UserNotFoundException(buyerId));
 
         product.reserve(buyer);
 

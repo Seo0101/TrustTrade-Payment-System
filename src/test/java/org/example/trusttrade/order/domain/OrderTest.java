@@ -55,8 +55,9 @@ public class OrderTest {
 
         String orderLockKey = "test-lock-key";
 
-        product.validateOrderable(buyer.getId());
+        product.validateReservation(seller.getId(), buyer.getId());
         product.reserve(buyer);
+        product.validateOrderable(buyer.getId());
 
         //when
 

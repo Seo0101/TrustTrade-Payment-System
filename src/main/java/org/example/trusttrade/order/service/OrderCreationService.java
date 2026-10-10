@@ -16,6 +16,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -59,7 +60,7 @@ public class OrderCreationService {
             );
         }
 
-        // 3. 사용자 조회
+        // 3. 구매자 조회
         User buyer = userRepository.findById(buyerId)
                 .orElseThrow(() ->
                         new BusinessException(ErrorCode.USER_NOT_FOUND)
@@ -67,11 +68,23 @@ public class OrderCreationService {
 
         User seller = product.getUser();
 
-        // 4. 검증
+        // 4. 판매자가 확정한 구매자인지 검증
         product.validateOrderable(buyerId);
 
-        // 5. 예약
-        product.reserve(buyer);
+        //5. 같은 상품에 진행 중인 주문이 있으면 새 주문 생성 금지
+        boolean hasActiveOrder = orderRepository.existsByProduct_IdAndStatusIn(
+                productId,
+                List.of(
+                        Order.Status.CREATED,
+                        Order.Status.PENDING,
+                        Order.Status.FAILED
+                )
+        );
+
+        if (hasActiveOrder) {
+            throw new BusinessException(ErrorCode.PAYMENT_IN_PROGRESS);
+        }
+
 
         // 6. 주문 생성
         Order order =
@@ -102,19 +115,18 @@ public class OrderCreationService {
         }
     }
 
-    //order 중복 요청 방지
+    //현재 상태의 주문을 반환해도 되는가?
     private Order handleExistingOrder(Order order, Product product, UUID buyerId) {
         switch (order.getStatus()) {
             case CREATED:
             case PENDING:
-                return order;
-            case FAILED:
-                product.validateOrderable(buyerId);
-                return order;
-
             case PAID:
             case COMPLETED:
-                throw new BusinessException(ALREADY_PURCHASED);
+                return order;
+
+            case FAILED:
+                product.validateRetryOrderable(buyerId);
+                return order;
 
             case CANCELLED:
                 //order에 멱등키가 있는데 cancelled 상태는 존재할 수 없음. => 방어 처리 로직 핑요힘
@@ -123,5 +135,29 @@ public class OrderCreationService {
                         "CANCELLED 주문에 order_lock_key가 존재합니다.");
         }
         throw new IllegalStateException("지원하지 않는 상태");
+    }
+
+    //dupli 복구 로직
+    @Transactional
+    public Order recoverExistingOrder(
+            String orderLockKey,
+            Long productId,
+            UUID buyerId
+    ) {
+        Product product = productRepository.findByIdForUpdate(productId)
+                .orElseThrow(() ->
+                        new BusinessException(ErrorCode.PRODUCT_NOT_FOUND)
+                );
+
+        Order existingOrder = orderRepository.findByOrderLockKey(orderLockKey)
+                .orElseThrow(() ->
+                        new OrderCreationFailedException(
+                                "중복 주문 충돌 후 기존 주문 조회 실패"
+                        )
+                );
+
+        existingOrder.validateSameRequest(productId, buyerId);
+
+        return handleExistingOrder(existingOrder, product, buyerId);
     }
 }
