@@ -45,10 +45,14 @@ public class GlobalExceptionHandler {
 
     //주문 정보 불일치
     @ExceptionHandler(PaymentAmountMismatchException.class)
-    public ResponseEntity<String> handlePaymentAmountMismatch(PaymentAmountMismatchException e) {
+    public ResponseEntity<ErrorResponse> handlePaymentAmountMismatch(PaymentAmountMismatchException e) {
+
         return ResponseEntity
-                .status(500)
-                .body(e.getMessage());
+                .status(HttpStatus.BAD_REQUEST)
+                .body(new ErrorResponse(
+                        "PAYMENT_AMOUNT_MISMATCH",
+                        "결제 금액이 주문 금액과 일치하지 않습니다."
+                ));
     }
 
     //주문 정보 없음
@@ -103,11 +107,12 @@ public class GlobalExceptionHandler {
     //외부 API 에러
     @ExceptionHandler(ExternalApiException.class)
     public ResponseEntity<?> handleExternalApiException(ExternalApiException e) {
-        return ResponseEntity
-                .status(HttpStatus.INTERNAL_SERVER_ERROR)
-                .body(Map.of(
-                        "code", e.getCause(),
-                        "message", e.getMessage()
+        log.error("PG 통신 실패: 결제 상태 재확인 필요", e);
+
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
+                .body(new ErrorResponse(
+                        "PAYMENT_PROVIDER_COMMUNICATION_ERROR",
+                        "결제 결과를 확인하지 못했습니다. 잠시 후 상태를 확인해주세요."
                 ));
     }
 

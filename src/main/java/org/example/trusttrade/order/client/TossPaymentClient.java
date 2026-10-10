@@ -12,6 +12,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Base64;
 
 @Component
@@ -21,6 +22,9 @@ public class TossPaymentClient {
     @Value("${payment.toss.test-secret-key}")
     private String widgetSecretKey;
     private final ObjectMapper jacksonObjectMapper;
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10))
+            .build();
 
     public TossPaymentClient(ObjectMapper jacksonObjectMapper) {
         this.jacksonObjectMapper = jacksonObjectMapper;
@@ -31,12 +35,13 @@ public class TossPaymentClient {
         try {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create("https://api.tosspayments.com/v1/payments/" + paymentKey))
+                    .timeout(Duration.ofSeconds(30))
                     .header("Authorization", getAuthorizations())
                     .header("Content-Type", "application/json")
                     .GET()
                     .build();
 
-            return HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+            return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
 
@@ -55,22 +60,22 @@ public class TossPaymentClient {
         //JSON 객체 생성
         JsonNode requestObj = jacksonObjectMapper.createObjectNode()
                 .put("orderId", orderId)
-                .put("amount", String.valueOf(amount))
+                .put("amount", amount)
                 .put("paymentKey", paymentKey);
 
         //JSON 객체 문자열 변환, 결제 승인 요청
         try {
             String requestBody = jacksonObjectMapper.writeValueAsString(requestObj);
-            System.out.println("Sending request to Toss: " + requestBody);
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create("https://api.tosspayments.com/v1/payments/confirm"))
+                    .timeout(Duration.ofSeconds(30))
                     .header("Authorization", getAuthorizations())
                     .header("Content-Type", "application/json")
                     .method("POST", HttpRequest.BodyPublishers.ofString(requestBody))
                     .build();
 
-            return HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+            return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
 
         }catch (InterruptedException e){
@@ -89,12 +94,13 @@ public class TossPaymentClient {
         try {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create("https://api.tosspayments.com/v1/payments/" + paymentKey + "/cancel"))
+                    .timeout(Duration.ofSeconds(30))
                     .header("Authorization", getAuthorizations())
                     .header("Content-Type", "application/json")
                     .method("POST", HttpRequest.BodyPublishers.ofString("{\"cancelReason\" : \"" + cancelReason + "\"}"))
                     .build();
 
-            return HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+            return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
         }catch (InterruptedException e){
             Thread.currentThread().interrupt();
             throw new ExternalApiException("토스 취소 API 요청이 인터럽트되었습니다.", e);

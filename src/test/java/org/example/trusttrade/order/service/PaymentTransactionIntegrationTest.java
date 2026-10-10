@@ -147,12 +147,9 @@ class PaymentTransactionIntegrationTest {
         when(context.getBean(PaymentService.class).syncConfirmingPayments(any()))
                 .thenReturn(List.of(failed, successful));
         TossPaymentClient client = context.getBean(TossPaymentClient.class);
-        HttpResponse<String> response = mock(HttpResponse.class);
-        when(response.statusCode()).thenReturn(200);
-        when(response.body()).thenReturn("{\"status\":\"DONE\"}");
         when(client.checkState(anyString())).thenAnswer(invocation -> {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse();
-            return response;
+            return doneResponse(invocation.getArgument(0).equals(failed.getPaymentKey()) ? failed : successful);
         });
         context.getBean(PaymentSyncScheduler.class).syncPayments();
         verify(client, times(2)).checkState(anyString());
@@ -162,5 +159,78 @@ class PaymentTransactionIntegrationTest {
             assertThat(em.find(Payment.class, successful.getId()).getStatus()).isEqualTo(Payment.Status.SUCCESS);
             assertThat(em.find(Order.class, successful.getOrder().getId()).getStatus()).isEqualTo(Order.Status.PAID);
         });
+    }
+
+    @SuppressWarnings("unchecked")
+    private HttpResponse<String> response(int status, String body) {
+        HttpResponse<String> response = mock(HttpResponse.class);
+        when(response.statusCode()).thenReturn(status);
+        when(response.body()).thenReturn(body);
+        return response;
+    }
+
+    private HttpResponse<String> doneResponse(Payment payment) {
+        return response(200, String.format(
+                "{\"status\":\"DONE\",\"orderId\":\"%s\",\"paymentKey\":\"%s\",\"totalAmount\":%d}",
+                payment.getOrder().getId(), payment.getPaymentKey(), payment.getAmount()));
+    }
+
+    @Test void notFoundKeepsReservationAndAllowsLateApproval() {
+        Payment payment = seedConfirming(false);
+        var results = context.getBean(PaymentResultService.class);
+        assertThat(results.syncPaymentState(payment.getIdempotencyKey(),
+                response(404, "{\"code\":\"NOT_FOUND_PAYMENT\",\"message\":\"not found\"}")))
+                .isEqualTo(PaymentSyncResult.PENDING);
+        tx.executeWithoutResult(status -> {
+            Payment stored = em.find(Payment.class, payment.getId());
+            assertThat(stored.getStatus()).isEqualTo(Payment.Status.CONFIRMING);
+            assertThat(stored.getOrder().getStatus()).isEqualTo(Order.Status.PENDING);
+            assertThat(stored.getOrder().getRetryCount()).isZero();
+            assertThat(stored.getOrder().getProduct().getStatus()).isEqualTo(ProductStatus.RESERVED);
+        });
+        assertThat(results.handleConfirmResult(payment.getIdempotencyKey(),
+                doneResponse(payment))).isEqualTo(PaymentSyncResult.SUCCESS);
+    }
+
+    @Test void concurrentSyncAndApprovalBothReturnSuccess() throws Exception {
+        Payment payment = seedConfirming(false);
+        var results = context.getBean(PaymentResultService.class);
+        var done = doneResponse(payment);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CyclicBarrier start = new CyclicBarrier(2);
+        try {
+            Future<PaymentSyncResult> sync = pool.submit(() -> {
+                start.await(5, TimeUnit.SECONDS);
+                return results.syncPaymentState(payment.getIdempotencyKey(), done);
+            });
+            Future<PaymentSyncResult> confirm = pool.submit(() -> {
+                start.await(5, TimeUnit.SECONDS);
+                return results.handleConfirmResult(payment.getIdempotencyKey(), done);
+            });
+            assertThat(sync.get(5, TimeUnit.SECONDS)).isEqualTo(PaymentSyncResult.SUCCESS);
+            assertThat(confirm.get(5, TimeUnit.SECONDS)).isEqualTo(PaymentSyncResult.SUCCESS);
+            tx.executeWithoutResult(status -> {
+                Payment stored = em.find(Payment.class, payment.getId());
+                assertThat(stored.getStatus()).isEqualTo(Payment.Status.SUCCESS);
+                assertThat(stored.getOrder().getStatus()).isEqualTo(Order.Status.PAID);
+                assertThat(stored.getOrder().getProduct().getStatus()).isEqualTo(ProductStatus.COMPLETED);
+            });
+        } finally { pool.shutdownNow(); }
+    }
+
+    @Test void lateSuccessForFailedPaymentRequestsReconciliation() {
+        Payment payment = seedConfirming(false);
+        var results = context.getBean(PaymentResultService.class);
+        tx.executeWithoutResult(status -> {
+            Payment stored = em.find(Payment.class, payment.getId());
+            results.handlePaymentFailure(stored.getOrder(), stored, "rejected");
+        });
+        var done = doneResponse(payment);
+        assertThat(results.handleConfirmResult(payment.getIdempotencyKey(), done))
+                .isEqualTo(PaymentSyncResult.NEEDS_SYNC);
+        assertThat(results.syncPaymentState(payment.getIdempotencyKey(), done))
+                .isEqualTo(PaymentSyncResult.NEEDS_SYNC);
+        assertThat(results.handleConfirmResult(payment.getIdempotencyKey(), response(400, "{}")))
+                .isEqualTo(PaymentSyncResult.FAILED);
     }
 }

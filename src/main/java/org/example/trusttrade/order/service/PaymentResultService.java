@@ -1,5 +1,6 @@
 package org.example.trusttrade.order.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.AllArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.example.trusttrade.global.error.ErrorCode;
@@ -7,6 +8,7 @@ import org.example.trusttrade.order.client.TossPaymentClient;
 import org.example.trusttrade.order.domain.Order;
 import org.example.trusttrade.order.domain.Payment;
 import org.example.trusttrade.order.domain.PaymentSyncResult;
+import org.example.trusttrade.order.dto.ConfirmPreparation;
 import org.example.trusttrade.order.exception.*;
 import org.example.trusttrade.order.exception.SystemException.PaymentSystemException;
 import org.example.trusttrade.order.repository.OrderRepository;
@@ -50,46 +52,49 @@ public class PaymentResultService {
                         new BusinessException(ErrorCode.PAYMENT_NOT_FOUND));
     }
 
-
-
-
     //===============인증 api 호출 전 처리 트랜잭션=============
     @Transactional
-    public Payment prepareConfirm(int amount, String orderId, String paymentKey, String idempotencyKey) {
+    public ConfirmPreparation prepareConfirm(int amount, String orderId, String paymentKey, String idempotencyKey) {
 
-        //결제, 주문 상태 검증
-        Payment payment = validateIdempotency(idempotencyKey);
+        Payment payment = findPaymentWithOrderLock(idempotencyKey);
 
-        //요청 데이터와 DB 데이터 일치하는지 검증
-        verifyPayment(payment, orderId, amount);
+        // 상태와 관계없이 주문 ID와 금액부터 검증
+        Order order = verifyPayment(payment, orderId, amount);
+
+        if (payment.getStatus() != Payment.Status.READY) {
+            // 반복 요청은 기존에 저장된 paymentKey와도 일치해야 함
+            if (!paymentKey.equals(payment.getPaymentKey())) {
+                throw new BusinessException(
+                        ErrorCode.INVALID_PAYMENT_REQUEST
+                );
+            }
+
+            // CONFIRMING / SUCCESS / FAILED는 PG 승인 재호출 안 함
+            return new ConfirmPreparation(
+                    false,
+                    order.getId(),
+                    order.getAmount(),
+                    payment.getPaymentKey(),
+                    payment.getIdempotencyKey()
+            );
+        }
+
+        if (order.getOrderLockKey() == null
+                || order.getStatus() != Order.Status.PENDING) {
+            throw new BusinessException(ErrorCode.ORDER_NOT_PENDING);
+        }
 
         payment.assignPaymentKey(paymentKey);
         payment.changeStatus(Payment.Status.CONFIRMING);
 
-        return payment;
+        return new ConfirmPreparation(
+                true,
+                order.getId(),
+                order.getAmount(),
+                payment.getPaymentKey(),
+                payment.getIdempotencyKey()
+        );
 
-    }
-
-    //confirm 중복 요청 대응
-    private Payment validateIdempotency(String idempotencyKey) {
-
-        // 주문 → 결제 순서로 락 획득
-        Payment payment = findPaymentWithOrderLock(idempotencyKey);
-
-        // 2. 최종 상태는 무조건 차단
-        if (payment.getStatus() != Payment.Status.READY) {
-            throw new BusinessException(ErrorCode.PAYMENT_ALREADY_PROCESSED);
-        }
-
-        //3. payment의 order 상태 검증
-        Order order = payment.getOrder();
-
-        if (order.getOrderLockKey() == null ||
-                !order.getStatus().equals(PENDING)) {
-            throw new BusinessException(ErrorCode.ORDER_NOT_PENDING);
-        }
-
-        return payment;
     }
 
     //결제 정보 검증
@@ -111,6 +116,48 @@ public class PaymentResultService {
 
 
     //=================결과 처리 트랜잭션 함수==================
+    private void verifySuccessfulPgResponse(
+            Payment payment,
+            HttpResponse<String> response
+    ) {
+        if (response.statusCode() != 200) {
+            return;
+        }
+
+        JsonNode root = paymentResponseParser.parse(response.body());
+
+        if (!"DONE".equals(root.path("status").asText())) {
+            return;
+        }
+
+        Order order = payment.getOrder();
+        JsonNode totalAmount = root.get("totalAmount");
+
+        boolean matches =
+                order.getId().equals(root.path("orderId").asText())
+                        && payment.getPaymentKey() != null
+                        && payment.getPaymentKey().equals(
+                        root.path("paymentKey").asText()
+                )
+                        && totalAmount != null
+                        && totalAmount.isIntegralNumber()
+                        && totalAmount.canConvertToInt()
+                        && totalAmount.intValue() == order.getAmount()
+                        && totalAmount.intValue() == payment.getAmount();
+
+        if (!matches) {
+            log.error(
+                    "PG 성공 응답 불일치 orderId={}, paymentId={}",
+                    order.getId(),
+                    payment.getId()
+            );
+
+            throw new PaymentSystemException(
+                    ErrorCode.PAYMENT_INTEGRATION_ERROR
+            );
+        }
+    }
+
     @Transactional
     public PaymentSyncResult handleConfirmResult(
             String idempotencyKey,
@@ -118,9 +165,19 @@ public class PaymentResultService {
     ) {
 
         // 주문 → 결제 순서로 락 획득
+        //외부 API 호출 끝남 -> idempotencyKey로 다시 payment 조회
         Payment payment = findPaymentWithOrderLock(idempotencyKey);
 
-        //payment 상태 CONFIRMING 검증
+        verifySuccessfulPgResponse(payment, response);
+
+        //이미 확정된 결제인지 확인
+        PaymentSyncResult finalResult = existingFinalResult(payment, response);
+
+        if (finalResult != null) {
+            return finalResult;
+        }
+
+        //미확정 결제는 CONFIRMING인지 검증
         if (payment.getStatus() != Payment.Status.CONFIRMING) {
             throw new BusinessException(
                     ErrorCode.PAYMENT_NOT_CONFIRMING
@@ -152,7 +209,7 @@ public class PaymentResultService {
                 //이미 처리된 결제 > 상태 조회 후 동기화==============================
                 case "ALREADY_PROCESSED_PAYMENT":
                     //여기서 바로 상태 동기화 함수 호출하면 트랜잭션(t2) 내에서 외부 API 호출하므로 안됨
-                    //상태만 반환해서
+                    //상태만 반환해서 이후 동기화 처리
                     return PaymentSyncResult.NEEDS_SYNC;
 
                     //==========실패 확정===============
@@ -238,7 +295,7 @@ public class PaymentResultService {
         log.info("결제 실패 orderId={}", order.getId());
     }
 
-    //==============스케줄러 상태 동기화====================
+    //==============상태 동기화====================
     //상태 조회 결과 처리
     @Transactional
     public PaymentSyncResult syncPaymentState(
@@ -246,18 +303,16 @@ public class PaymentResultService {
             HttpResponse<String> response
     ) {
 
-        // 주문 → 결제 순서로 락 획득
+        //외부 api 호출 후 다시 조회
         Payment payment = findPaymentWithOrderLock(idempotencyKey);
 
-        // 이미 처리된 결제
-        if (payment.getStatus() == Payment.Status.SUCCESS) {
-            return PaymentSyncResult.SUCCESS;
-        }
+        verifySuccessfulPgResponse(payment, response);
 
-        if (payment.getStatus() == Payment.Status.FAILED) {
-            return PaymentSyncResult.FAILED;
-        }
+        PaymentSyncResult finalResult = existingFinalResult(payment, response);
 
+        if (finalResult != null) {
+            return finalResult;
+        }
 
         Order order = payment.getOrder();
 
@@ -300,47 +355,16 @@ public class PaymentResultService {
             // 2. PG 오류 응답
             // ==========================
 
-            String errorCode =
-                    paymentResponseParser.extractErrorCode(response.body());
-
-            String errorMessage =
-                    paymentResponseParser.extractErrorMessage(response.body());
-
-
-            //2. 결제 정보 없음
+            // 조회 404만으로 승인 실패를 확정하지 않는다.
+            // 오류 응답 파싱에 실패해도 상태를 바꾸지 않도록 먼저 처리한다.
             if (statusCode == 404) {
-
-                if ("NOT_FOUND_PAYMENT".equals(errorCode)) {
-
-                    log.info(
-                            "PG 결제 실패 확정 orderId={}, paymentKey={}, errorCode={}",
-                            order.getId(),
-                            payment.getPaymentKey(),
-                            errorCode
-                    );
-
-                    // PG에 해당 paymentKey의 결제 자체가 존재하지 않음
-                    // → 결제 실패 확정
-                    handlePaymentFailure(
-                            order,
-                            payment,
-                            "PG 상태 조회 결과 결제 정보가 존재하지 않음"
-                    );
-
-                    return PaymentSyncResult.FAILED;
-                }
-                // 예상하지 못한 404
-                log.error(
-                        "PG 결제 조회 404 미처리 errorCode={}, message={}, orderId={}, paymentKey={}",
-                        errorCode,
-                        errorMessage,
-                        order.getId(),
-                        payment.getPaymentKey()
-                );
-
-                //confirming 유지
+                log.warn("PG 결제 조회 미확정 orderId={}, paymentKey={}",
+                        order.getId(), payment.getPaymentKey());
                 return PaymentSyncResult.PENDING;
             }
+
+            String errorCode = paymentResponseParser.extractErrorCode(response.body());
+            String errorMessage = paymentResponseParser.extractErrorMessage(response.body());
 
             // 3. 인증/권한 오류
             if (statusCode == 401 || statusCode == 403) {
@@ -388,4 +412,21 @@ public class PaymentResultService {
 
 
     }
+    // 확정 상태는 중복 반영하지 않음. 실패 기록과 성공 응답의 충돌은 재조회한다.
+    private PaymentSyncResult existingFinalResult(Payment payment, HttpResponse<String> response) {
+        if (payment.getStatus() == Payment.Status.SUCCESS) {
+            return PaymentSyncResult.SUCCESS;
+        }
+        if (payment.getStatus() == Payment.Status.FAILED) {
+            if (response.statusCode() == 200
+                    && "DONE".equals(paymentResponseParser.extractStatus(response.body()))) {
+                log.error("결제 상태 불일치: DB=FAILED, PG=DONE, orderId={}, paymentKey={}",
+                        payment.getOrder().getId(), payment.getPaymentKey());
+                return PaymentSyncResult.NEEDS_SYNC;
+            }
+            return PaymentSyncResult.FAILED;
+        }
+        return null;
+    }
+
 }

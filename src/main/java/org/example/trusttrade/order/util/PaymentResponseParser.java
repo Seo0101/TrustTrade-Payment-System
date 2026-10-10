@@ -3,6 +3,8 @@ package org.example.trusttrade.order.util;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.example.trusttrade.global.error.ErrorCode;
+import org.example.trusttrade.order.exception.SystemException.PaymentSystemException;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -10,38 +12,48 @@ public class PaymentResponseParser {
 
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public String extractStatus(String responseBody) {
+    public JsonNode parse(String body) {
         try {
-            JsonNode root = mapper.readTree(responseBody);
-            JsonNode statusNode = root.get("status");
+            JsonNode root = mapper.readTree(body);
 
-            return statusNode != null ? statusNode.asText() : null;
+            if (root == null || !root.isObject()) {
+                throw new PaymentSystemException(
+                        ErrorCode.PAYMENT_PROVIDER_ERROR
+                );
+            }
+
+            return root;
 
         } catch (JsonProcessingException e) {
-            throw new RuntimeException(e);
+            throw new PaymentSystemException(
+                    ErrorCode.PAYMENT_PROVIDER_ERROR
+            );
         }
     }
 
-    public String extractErrorCode(String body){
-        try{
-            JsonNode root = mapper.readTree(body);
-            JsonNode errorNode = root.get("error");
-
-            return errorNode != null ? errorNode.get("code").asText() : null;
-
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException(e);
-        }
+    public String extractStatus(String body) {
+        return requiredText(parse(body), "status");
     }
 
-    public String extractErrorMessage(String body){
-        try{
-            JsonNode root = mapper.readTree(body);
-            JsonNode errorMessage = root.get("message");
+    public String extractErrorCode(String body) {
+        return requiredText(parse(body), "code");
+    }
 
-            return errorMessage != null ? errorMessage.get("message").asText() : null;
-        }catch (JsonProcessingException e) {
-            throw new RuntimeException(e);
+    public String extractErrorMessage(String body) {
+        return requiredText(parse(body), "message");
+    }
+
+    private String requiredText(JsonNode root, String field) {
+        JsonNode node = root.get(field);
+
+        if (node == null
+                || !node.isTextual()
+                || node.asText().isBlank()) {
+            throw new PaymentSystemException(
+                    ErrorCode.PAYMENT_PROVIDER_ERROR
+            );
         }
+
+        return node.asText();
     }
 }

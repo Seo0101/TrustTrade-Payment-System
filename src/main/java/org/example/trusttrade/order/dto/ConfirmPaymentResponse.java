@@ -10,7 +10,7 @@ import lombok.*;
 public class ConfirmPaymentResponse {
 
     private String orderId;
-    private String paymentKe;
+    private String paymentKey;
     private String status;
     private String message;
 }

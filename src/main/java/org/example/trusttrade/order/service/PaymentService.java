@@ -9,6 +9,7 @@ import org.example.trusttrade.order.client.TossPaymentClient;
 import org.example.trusttrade.order.domain.Order;
 import org.example.trusttrade.order.domain.Payment;
 import org.example.trusttrade.order.domain.PaymentSyncResult;
+import org.example.trusttrade.order.dto.ConfirmPreparation;
 import org.example.trusttrade.order.exception.*;
 import org.example.trusttrade.order.exception.SystemException.DuplicatePaymentException;
 import org.example.trusttrade.order.exception.SystemException.PaymentCreationFailedException;
@@ -104,7 +105,6 @@ public class PaymentService {
     public Payment ready(String orderId, String idempotencyKey) {
 
         //1.멱등키로 기존 payment 조회 및 반환
-        //동일한 멱등키에 대한 중복 요청 방지
         Optional<Payment> existing = paymentRepository.findByIdempotencyKey(idempotencyKey);
 
         if (existing.isPresent()) {
@@ -148,29 +148,40 @@ public class PaymentService {
 
         // Transaction 1
         //결제 정보 검증
-        paymentResultService.prepareConfirm(
-                amount,
-                orderId,
-                paymentKey,
-                idempotencyKey
-        );
-
-        // 결제 인증 api 호출
-        HttpResponse<String> response = tossPaymentClient.requestConfirm(amount, orderId, paymentKey);
-
-        // Transaction 2 -> 새로운 트랜잭션 시작되므로 기존 객체를 재사용 하는게 하니라 id로 다시 조회해서 사용해야 함.
-        PaymentSyncResult result =
-                paymentResultService.handleConfirmResult(
-                        idempotencyKey,
-                        response
+        ConfirmPreparation preparation =
+                paymentResultService.prepareConfirm(
+                        amount,
+                        orderId,
+                        paymentKey,
+                        idempotencyKey
                 );
 
-        // 이 시점에는 handleConfirmResult()의 TX2가 끝난 상태
-        //NEEDS_SYNC는 상태 조회 및 동기화 필요하단 의미
-        if (result == PaymentSyncResult.NEEDS_SYNC) {
+        //pg 인증 하는 경우
+        if (preparation.requestApproval()) {
+            // 트랜잭션 밖에서 PG 호출
+            HttpResponse<String> response =
+                    tossPaymentClient.requestConfirm(
+                            preparation.amount(),
+                            preparation.orderId(),
+                            preparation.paymentKey()
+                    );
 
-            //외부 API + Transaction3
-            paymentStateSyncService.checkAndSync(paymentKey, idempotencyKey);
+
+            // Transaction 2 승인 결과 반영
+            // 새로운 트랜잭션 시작되므로 기존 객체를 재사용 하는게 하니라 id로 다시 조회해서 사용해야 함.
+            PaymentSyncResult result =
+                    paymentResultService.handleConfirmResult(
+                            idempotencyKey,
+                            response
+                    );
+
+            // 이 시점에는 handleConfirmResult()의 TX2가 끝난 상태
+            //NEEDS_SYNC는 상태 조회 및 동기화 필요하단 의미
+            if (result == PaymentSyncResult.NEEDS_SYNC) {
+
+                //외부 API + Transaction3
+                paymentStateSyncService.checkAndSync(paymentKey, idempotencyKey);
+            }
         }
 
         return paymentRepository
@@ -181,6 +192,7 @@ public class PaymentService {
 
 
     }
+
 
 
     //======================스케줄러 관련 함수==============
