@@ -30,10 +30,17 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
 
 
     //결제 조회 스케줄러
-    @Query("SELECT p FROM Payment p JOIN p.order o WHERE p.status = 'CONFIRMING' " +
-            "AND p.requestAt <= :threshold")
-    List<Payment> findByStatusWithLock(@Param("threshold") LocalDateTime threshold);
-
+    @Query("""
+    select p
+    from Payment p
+    where p.status = :status
+      and p.confirmingAt <= :threshold
+    order by p.confirmingAt, p.id
+    """)
+    List<Payment> findSyncTargets(
+            @Param("status") Payment.Status status,
+            @Param("threshold") LocalDateTime threshold
+    );
 
     @Query("""
     select p.order.id

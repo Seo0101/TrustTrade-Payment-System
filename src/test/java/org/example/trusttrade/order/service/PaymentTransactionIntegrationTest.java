@@ -93,6 +93,53 @@ class PaymentTransactionIntegrationTest {
         });
     }
 
+    @Test void confirmingTimeIsRecordedOnlyOnApprovalStart() {
+        Order order = seedOrder();
+        Payment payment = Payment.create(order, "time-key");
+        assertThat(payment.getConfirmingAt()).isNull();
+        LocalDateTime before = LocalDateTime.now();
+        payment.changeStatus(Payment.Status.CONFIRMING);
+        LocalDateTime confirmingAt = payment.getConfirmingAt();
+        assertThat(confirmingAt).isBetween(before, LocalDateTime.now());
+        payment.changeStatus(Payment.Status.SUCCESS);
+        assertThat(payment.getConfirmingAt()).isEqualTo(confirmingAt);
+    }
+
+    @Test void targetsUseApprovalTimeIncludeBoundaryAndExcludeOtherStatesAndNulls() {
+        LocalDateTime threshold = LocalDateTime.of(2026, 10, 11, 12, 0);
+        Payment oldest = seedConfirming(false);
+        Payment boundary = seedConfirming(false);
+        Payment fresh = seedConfirming(false);
+        Payment unknown = seedConfirming(false);
+        Payment success = seedConfirming(false);
+        Payment failed = seedConfirming(false);
+        Order readyOrder = seedOrder();
+        tx.executeWithoutResult(s -> {
+            Payment ready = Payment.create(em.find(Order.class, readyOrder.getId()), "ready-key");
+            em.persist(ready);
+            setTimes(oldest, threshold.minusMinutes(1), threshold.minusHours(1));
+            setTimes(boundary, threshold, threshold.minusHours(1));
+            setTimes(fresh, threshold.plusSeconds(1), threshold.minusHours(1));
+            setTimes(unknown, null, threshold.minusHours(1));
+            setTimes(success, threshold.minusMinutes(2), threshold.minusHours(1));
+            setTimes(failed, threshold.minusMinutes(2), threshold.minusHours(1));
+            em.find(Payment.class, success.getId()).changeStatus(Payment.Status.SUCCESS);
+            em.find(Payment.class, failed.getId()).changeStatus(Payment.Status.FAILED);
+        });
+        tx.executeWithoutResult(s -> {
+            var targets = context.getBean(PaymentRepository.class)
+                    .findSyncTargets(Payment.Status.CONFIRMING, threshold);
+            assertThat(targets).extracting(Payment::getId)
+                    .containsExactly(oldest.getId(), boundary.getId());
+        });
+    }
+
+    private void setTimes(Payment payment, LocalDateTime confirmingAt, LocalDateTime requestAt) {
+        Payment managed = em.find(Payment.class, payment.getId());
+        org.springframework.test.util.ReflectionTestUtils.setField(managed, "confirmingAt", confirmingAt);
+        org.springframework.test.util.ReflectionTestUtils.setField(managed, "requestAt", requestAt);
+    }
+
     @Test void differentKeysCannotCreateTwoPaymentsWhileOrderIsLocked() throws Exception {
         Order order = seedOrder();
         var creator = context.getBean(PaymentCreationService.class);

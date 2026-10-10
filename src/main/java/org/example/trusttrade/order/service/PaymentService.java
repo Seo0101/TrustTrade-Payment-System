@@ -196,10 +196,13 @@ public class PaymentService {
 
 
     //======================스케줄러 관련 함수==============
-    //payment 상태 CONFIRMING 상태 결제 조회
+    //payment 상태 CONFIRMING 상태 결제 조회,
+    // 조회 목적으로 트랜잭션을 실행
+    @Transactional(readOnly = true)
     public List<Payment> syncConfirmingPayments(LocalDateTime threshold) {
 
-        return paymentRepository.findByStatusWithLock(threshold);
+        return paymentRepository.findSyncTargets(Payment.Status.CONFIRMING,
+                threshold);
     }
 
 

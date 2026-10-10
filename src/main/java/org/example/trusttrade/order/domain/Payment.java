@@ -43,6 +43,8 @@ public class Payment {
     @LastModifiedDate
     private LocalDateTime approvedAt;
 
+    private LocalDateTime confirmingAt;
+
     public enum Status{
         READY,CONFIRMING, SUCCESS, FAILED
     }
@@ -91,6 +93,10 @@ public class Payment {
                             newStatus
                     )
             );
+        }
+
+        if (newStatus == Status.CONFIRMING) {
+            this.confirmingAt = LocalDateTime.now();
         }
 
         this.status = newStatus;

@@ -18,8 +18,9 @@ spring:
     time-zone: Asia/Seoul
 
   flyway:
-    enabled: false
-    baseline-on-migrate: false
+    enabled: true
+    baseline-on-migrate: true
+    baseline-version: "3"
 
   #비밀키
   config:
